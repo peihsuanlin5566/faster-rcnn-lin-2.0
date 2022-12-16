@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "faster-rcnn-lin-2-0"
+version = "0.1.0"
+description = ""
+authors = ["peihsuanlin5566 <jnes40722@gmail.com>"]
+readme = "README.md"
+packages = [{include = "pro"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+numpy = "^1.23.5"
+notebook = "^6.5.2"
+torch = {url = "https://download.pytorch.org/whl/cpu/torch-1.13.1-cp310-none-macosx_11_0_arm64.whl"}
+torchvision = {url = "https://download.pytorch.org/whl/cpu/torchvision-0.14.1-cp310-cp310-macosx_11_0_arm64.whl"}
+pandas = "^1.5.2"
+matplotlib = "^3.6.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
