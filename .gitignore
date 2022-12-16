@@ -4,4 +4,6 @@ pro/data/dataset/*
 .ipynb_checkpoints
 *.pyc
 .DS_store
-test*
+test.ipynb
+test.png
+test.py
