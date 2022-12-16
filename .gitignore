@@ -4,4 +4,4 @@ pro/data/dataset/*
 .ipynb_checkpoints
 *.pyc
 output_model/
-test*
+*.ipynb
