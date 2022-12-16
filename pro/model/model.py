@@ -5,20 +5,21 @@ import torchvision
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from pathlib import Path
 import os 
+import matplotlib as plt
+from tqdm import tqdm 
 
 # faster-rcnn-lin-2.0 folder path 
-DIR_PATH = Path(os.path.dirname(os.path.abspath(__file__)))
-
+DIR_PATH = Path(os.path.dirname(os.path.abspath(__file__))).parent.parent
 
 class FasterRcnn(): 
 
     def __init__(   self, 
-                    num_classes: int=21, 
+                    num_classes: int = 21, 
                     device: str ='cpu' 
                 ) -> None:
         
+        self.device = device
         self.load_pretrained_model(num_classes)
-        self.device = device 
         self.create_training_output_folder()
         
 
@@ -50,8 +51,8 @@ class FasterRcnn():
         if not exp_folder.is_dir(): 
             os.mkdir(exp_folder)
         self.exp_folder = exp_folder
+        print(str(exp_folder) + ' has been created! ')
 
-    
     def train(  self, 
                 train_dataloader, 
                 checkpoint_f=False, 
@@ -81,9 +82,13 @@ class FasterRcnn():
         # turn the model into training mode
         self.model.train()
 
-        for epoch in range(epoch0, num_epochs): 
-            for i, batch in enumerate(train_dataloader):
+        print('training start')
+        print('output file: ', self.exp_folder)
 
+        for epoch in range(epoch0, num_epochs): 
+            print( f'training at epoch{epoch}: ')
+            for i, batch in enumerate(tqdm(train_dataloader)):
+                
                 image_batch, target_batch, image_id_batch = batch
                 images = list(image.to(self.device) for image in image_batch)
                 targets = [{k: v.to(self.device) for k, v in t.items()} for t in target_batch]
@@ -103,7 +108,7 @@ class FasterRcnn():
 
                     # record the losses at each step
                     loss_value = losses.item()
-                    losses_array = np.append(loss_value)
+                    losses_array = np.append(losses_array, loss_value)
                     
                     # clear gradient
                     optimizer.zero_grad()
@@ -113,29 +118,37 @@ class FasterRcnn():
 
                     # Update parameters
                     optimizer.step()
-
+                    
+            print( f'------> training at epoch{epoch} completed; loss: {loss_value}')
 
             # save the general check point 
             if (epoch) % epoch_num_ouputs == 0: 
                 checkpoint_name = 'checkpoint_epoch{:0>3}.pt'.format(epoch)
                 checkpoint_save_infor = {'epoch': epoch+1,  
-                                        'model_state_dict': self.model.state_dict(), 
-                                        'optimizer_state_dict': optimizer.state_dict(),
-                                        'loss': loss_value, }
+                                         'model_state_dict': self.model.state_dict(), 
+                                         'optimizer_state_dict': optimizer.state_dict(),
+                                         'loss': loss_value, }
                 torch.save(checkpoint_save_infor, self.exp_folder / checkpoint_name)
                 print('save the checkpoint: {}'.format(checkpoint_name))
             
-        
-        file_name = 'model_{}'
-        torch.save(self.model, self.exp_folder/ file_name)
+    
+        file_name = 'model.pt'
+        torch.save(self.model, self.exp_folder / file_name)
+        print('training completed; model saved to ', self.exp_folder / file_name)
 
+    # def plot_loss(self): 
+    #     plt.clf()
+    #     ax = plt.subplot()
+    #     ax.plot(self.train_loss)
+    #     ax.set_title('train_loss')
+    #     ax.set  
+    
 
     def eval(self, weights=False): 
         """ predict from a fintuned model
 
             Args: 
                 weights: trained model filename (e.g., 'train_ALL_VOC2007.cpu.pt')
-
         """
         if not weights: 
             self.weights = weights
