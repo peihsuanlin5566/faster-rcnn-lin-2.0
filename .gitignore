@@ -3,5 +3,6 @@ pro/test/*
 pro/data/dataset/*
 .ipynb_checkpoints
 *.pyc
-output_model/
+output/
 test*
+test.ipynb

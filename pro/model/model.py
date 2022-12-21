@@ -48,9 +48,9 @@ class FasterRcnn():
 
     def create_training_output_folder(self, ): 
         now_string = gen_current_time_str()
-        exp_folder = DIR_PATH / 'output_model' / now_string
+        exp_folder = DIR_PATH / 'output' / now_string
         if not exp_folder.is_dir(): 
-            os.mkdir(exp_folder)
+            os.mkdir(exp_folder / 'model')
             os.mkdir(exp_folder / 'checkpoint')
         self.exp_folder = exp_folder
         print(str(exp_folder) + ' has been created! ')
@@ -79,7 +79,7 @@ class FasterRcnn():
         
         # train from a existing checkpoint file
         if checkpoint_f: 
-            checkpoint = torch.load(DIR_PATH / 'output_model' / checkpoint_f)
+            checkpoint = torch.load(DIR_PATH / 'output' / 'checkpoint'/ checkpoint_f)
             
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             epoch0 = checkpoint['epoch']
@@ -161,7 +161,7 @@ class FasterRcnn():
             if len(self.exp_folder) != 0: 
                 try: 
                     self.model.eval()
-                    output_folder = self.exp_folder
+                    output_dir = self.exp_folder
                 except NameError: 
                     print('No trained model is found; input the filename you want to load from (arg: load_from)')
             else: 
@@ -176,6 +176,12 @@ class FasterRcnn():
             self.model = model_load_from_weights
             self.model.eval()
             
+            if output_dir == None: 
+                output_dir = model_path.parent.parent / 'detect' 
+                if not output_dir.is_dir(): 
+                    os.mkdir(output_dir)
+
+            print('evaluation results output to {}'.format(output_dir))
 
         # calculate the metrics
         # create a list for calculating mAP
@@ -221,11 +227,12 @@ class FasterRcnn():
 
             if plot_result : 
                 # plot the predictions
-                output_dir = plot_results(image, 
+                plot_results(image, 
                         boxes[indices_keep], 
                         labels[indices_keep], 
                         image_id, 
                         self.class_name_dict,
+                        output_dir=output_dir, 
                         scores=scores[indices_keep], 
                         gt=False,)
 
@@ -235,6 +242,7 @@ class FasterRcnn():
                         labels_gt, 
                         image_id, 
                         self.class_name_dict, 
+                        output_dir=output_dir,
                         gt=True,)        
     
         metric  = MeanAveragePrecision()
