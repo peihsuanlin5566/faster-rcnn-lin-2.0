@@ -6,6 +6,7 @@ from PIL import Image
 import torch
 import pathlib
 from typing import List, Dict
+from pro.util.utils import find_class
 
 class VocDataset(torch.utils.data.Dataset):
 
@@ -23,20 +24,6 @@ class VocDataset(torch.utils.data.Dataset):
         self.transform = transforms.Compose([transforms.ToTensor()])
         self.set_label_dict()
 
-    def find_class(self, xml_dir: str) -> List: 
-        """ fetch the class names on the dataset
-            Args: 
-                xml_dir: label_dir
-        """
-        class_name = []
-        xml_files = pathlib.Path(xml_dir).glob('*.xml')
-        for xml_file in xml_files: 
-            xml = ET.parse(xml_file)
-            for i in xml.iter('object'): 
-                obj_name = i.find('name').text 
-                if obj_name not in class_name: 
-                    class_name.append(obj_name)
-        return class_name
         
     def get_label_dict(self, ) -> Dict:
         # dataset_dict['xml_filename'] = 
@@ -45,7 +32,7 @@ class VocDataset(torch.utils.data.Dataset):
         dataset_dict= {}
 
         if len(self.classes) == 0:
-            self.classes = self.find_class(self.label_dir)
+            self.classes = find_class(self.label_dir)
 
         for xml_file_path in pathlib.Path(self.label_dir).glob('*.xml'): 
             xml = ET.parse(xml_file_path).getroot()
@@ -122,7 +109,7 @@ class VocDataset(torch.utils.data.Dataset):
 
 class VocDataloader():  
 
-    def __init__(self, dataset, ) -> None:
+    def __init__(self, dataset: VocDataset, ) -> None:
 
         self.dataset = dataset 
 

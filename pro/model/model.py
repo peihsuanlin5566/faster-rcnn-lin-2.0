@@ -1,12 +1,17 @@
 import numpy as np 
-from datetime import datetime
 import torch
 import torchvision
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from pathlib import Path
 import os 
+from typing import List, Dict
 import matplotlib as plt
+from torchvision.ops import nms
 from tqdm import tqdm 
+from PIL import ImageDraw, ImageFont, Image
+from pro.util.utils import plot_results, gen_current_time_str, get_class_dict
+from torchmetrics.detection.mean_ap import MeanAveragePrecision
+
 
 # faster-rcnn-lin-2.0 folder path 
 DIR_PATH = Path(os.path.dirname(os.path.abspath(__file__))).parent.parent
@@ -14,42 +19,39 @@ DIR_PATH = Path(os.path.dirname(os.path.abspath(__file__))).parent.parent
 class FasterRcnn(): 
 
     def __init__(   self, 
-                    num_classes: int = 21, 
+                    class_name_dict: Dict , 
                     device: str ='cpu' 
                 ) -> None:
         
         self.device = device
-        self.load_pretrained_model(num_classes)
-        self.create_training_output_folder()
+        self.exp_folder = ''
+        self.class_name_dict = class_name_dict
+        num_classes = len(class_name_dict) +1
+        self.num_classes = num_classes
         
-
-    def load_pretrained_model(self, num_classes: int ):
+    
+    def load_pretrained_model(self, num_classes):
         """ we will be using Mask R-CNN, which is based on top of Faster R-CNN. 
             Faster R-CNN is a model that predicts both bounding boxes and class scores for potential objects in the image.
             Finetuning from a pretrained model
         
             Args: 
-                num_classes: number of classes 
         """
         model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights='FasterRCNN_ResNet50_FPN_Weights.DEFAULT')
         in_features = model.roi_heads.box_predictor.cls_score.in_features
+        # num_classes = len(class_name_dict) +1
         model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
         device = torch.device(self.device)
         model.to(device)
         self.model = model
 
 
-    def gen_current_time_str(self, ): 
-        now = datetime.now()
-        now_string = now.strftime("%y%m%d-%H%M%S")
-
-        return now_string
-
     def create_training_output_folder(self, ): 
-        now_string = self.gen_current_time_str()
+        now_string = gen_current_time_str()
         exp_folder = DIR_PATH / 'output_model' / now_string
         if not exp_folder.is_dir(): 
             os.mkdir(exp_folder)
+            os.mkdir(exp_folder / 'checkpoint')
         self.exp_folder = exp_folder
         print(str(exp_folder) + ' has been created! ')
 
@@ -62,7 +64,16 @@ class FasterRcnn():
                 momentum: float = 0.9, 
                 epoch_num_ouputs: int = 1
             ): 
-                
+
+        self.load_pretrained_model(num_classes)
+
+        
+        # create a folder for storing the output of the training result
+        if self.exp_folder == '': 
+            self.create_training_output_folder() 
+        
+        
+        # create the optimizer for training
         params = [p for p in self.model.parameters() if p.requires_grad] 
         optimizer = torch.optim.SGD(params, lr=lr, momentum=momentum, weight_decay=weight_decay) # パラメータ探索アルゴリズム
         
@@ -132,33 +143,107 @@ class FasterRcnn():
                 print('save the checkpoint: {}'.format(checkpoint_name))
             
     
-        file_name = 'model.pt'
+        file_name = f'model.{self.device}.pt'
         torch.save(self.model, self.exp_folder / file_name)
         print('training completed; model saved to ', self.exp_folder / file_name)
 
-    # def plot_loss(self): 
-    #     plt.clf()
-    #     ax = plt.subplot()
-    #     ax.plot(self.train_loss)
-    #     ax.set_title('train_loss')
-    #     ax.set  
-    
 
-    def eval(self, weights=False): 
+    def eval(self, val_dataloader, load_from=False, plot_result=False, output_dir=None): 
         """ predict from a fintuned model
 
             Args: 
-                weights: trained model filename (e.g., 'train_ALL_VOC2007.cpu.pt')
+                load_from: trained model (including the relatively path), 
+                (e.g., 'output_model/221216-175220/model.pt')
         """
-        if not weights: 
-            self.weights = weights
-            model_load_from_weights = torch.load(self.weights) 
-            model_load_from_weights.to(self.device)
-            return model_load_from_weights.eval()
-        else: 
-            return self.model.eval()
 
+        # load the model, turn on the eval mode of the model 
+        if not load_from: 
+            if len(self.exp_folder) != 0: 
+                try: 
+                    self.model.eval()
+                    output_folder = self.exp_folder
+                except NameError: 
+                    print('No trained model is found; input the filename you want to load from (arg: load_from)')
+            else: 
+                raise Exception("Sorry, no numbers below zero")
+                
+        # load the model from the input argument
+        else: 
+            # model_path = Path(load_from).parent / 'model.pt' 
+            model_path = Path(load_from)
+            model_load_from_weights = torch.load(model_path, map_location=torch.device('cpu')) 
+            model_load_from_weights.to(self.device)
+            self.model = model_load_from_weights
+            self.model.eval()
             
+
+        # calculate the metrics
+        # create a list for calculating mAP
+        pred = [None]*val_dataloader.dataset.__len__()
+        target_gt = [None]*val_dataloader.dataset.__len__()
+
+        for i, (image, target, image_id) in enumerate(tqdm(val_dataloader.dataset)): 
+            # image, target, image_id = next(iter(val_dataloader.dataset))
+
+            # move the image arrays to the specified device one by one
+            # images = list(img.to(device) for img in images)
+            # turns image array into PIL Image module
+            image = image.to(self.device)
+            outputs = self.model([image])
+            image = image.permute(1, 2, 0).cpu().numpy()
+            image = Image.fromarray((image * 255).astype(np.uint8))
+
+            # prediction 
+            # using threshold 0.5 to filter out the boxes
+            # apply nms on the prediction 
+            boxes   = outputs[0]["boxes"].data.cpu().numpy()
+            scores  = outputs[0]["scores"].data.cpu().numpy()
+            labels  = outputs[0]["labels"].data.cpu().numpy()
+            conf = 0.5
+            boxes = boxes[scores >= conf].astype(np.int32)
+            labels = labels[scores >= conf]
+            scores = scores[scores >= conf]
+            indices_keep = nms(torch.tensor(boxes.astype(float)),  
+                    torch.tensor(scores.astype(float)), iou_threshold=0.5).cpu().numpy()
+
+            # ground truth 
+            boxes_gt = target["boxes"].data.cpu().numpy()
+            labels_gt = target["labels"].data.cpu().numpy()
+            image_gt = image.copy()
+            
+            pred[i] = dict( boxes=torch.tensor(boxes[indices_keep].astype(float)), 
+                                scores=torch.tensor(scores[indices_keep].astype(float)), 
+                                labels=torch.tensor(labels[indices_keep].astype(float))
+                            )
+            target_gt[i]  = dict( boxes=torch.tensor(boxes_gt.astype(float)), 
+                                    labels=torch.tensor(labels_gt.astype(float))
+                                )
+
+            if plot_result : 
+                # plot the predictions
+                output_dir = plot_results(image, 
+                        boxes[indices_keep], 
+                        labels[indices_keep], 
+                        image_id, 
+                        self.class_name_dict,
+                        scores=scores[indices_keep], 
+                        gt=False,)
+
+                # plot the ground truth
+                plot_results(image_gt, 
+                        boxes_gt, 
+                        labels_gt, 
+                        image_id, 
+                        self.class_name_dict, 
+                        gt=True,)        
+    
+        metric  = MeanAveragePrecision()
+        metric.update(pred, target_gt)
+        mAP = metric.compute()['map']
+        print('mAP over {} images: {:4.3f}'.format(val_dataloader.dataset.__len__(), mAP) )
+        print('images output to {}'.format(output_dir))
+
+
 
     
 
