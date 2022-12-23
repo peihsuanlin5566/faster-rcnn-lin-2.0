@@ -5,11 +5,10 @@ from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from pathlib import Path
 import os 
 from typing import List, Dict
-import matplotlib as plt
 from torchvision.ops import nms
 from tqdm import tqdm 
 from PIL import ImageDraw, ImageFont, Image
-from pro.util.utils import plot_results, gen_current_time_str, get_class_dict
+from pro.util.utils import plot_results, gen_current_time_str,get_class_dict
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
 
 
@@ -19,16 +18,12 @@ DIR_PATH = Path(os.path.dirname(os.path.abspath(__file__))).parent.parent
 class FasterRcnn(): 
 
     def __init__(   self, 
-                    class_name_dict: Dict , 
                     device: str ='cpu' 
                 ) -> None:
         
         self.device = device
         self.exp_folder = ''
-        self.class_name_dict = class_name_dict
-        num_classes = len(class_name_dict) +1
-        self.num_classes = num_classes
-        
+        self.class_name_dict = {}
     
     def load_pretrained_model(self, num_classes):
         """ we will be using Mask R-CNN, which is based on top of Faster R-CNN. 
@@ -50,6 +45,7 @@ class FasterRcnn():
         now_string = gen_current_time_str()
         exp_folder = DIR_PATH / 'output' / now_string
         if not exp_folder.is_dir(): 
+            os.mkdir(exp_folder )
             os.mkdir(exp_folder / 'model')
             os.mkdir(exp_folder / 'checkpoint')
         self.exp_folder = exp_folder
@@ -57,6 +53,7 @@ class FasterRcnn():
 
     def train(  self, 
                 train_dataloader, 
+                class_name_dict, 
                 checkpoint_f=False, 
                 lr: float = 0.005, 
                 num_epochs: float = 10, 
@@ -65,25 +62,25 @@ class FasterRcnn():
                 epoch_num_ouputs: int = 1
             ): 
 
-        self.load_pretrained_model(num_classes)
-
-        
-        # create a folder for storing the output of the training result
-        if self.exp_folder == '': 
-            self.create_training_output_folder() 
-        
-        
+        # load the class_name_dict 
+        self.class_name_dict = class_name_dict
+        self.num_classes = len(class_name_dict)
+        self.load_pretrained_model(self.num_classes)
+                
         # create the optimizer for training
         params = [p for p in self.model.parameters() if p.requires_grad] 
         optimizer = torch.optim.SGD(params, lr=lr, momentum=momentum, weight_decay=weight_decay) # パラメータ探索アルゴリズム
         
         # train from a existing checkpoint file
         if checkpoint_f: 
-            checkpoint = torch.load(DIR_PATH / 'output' / 'checkpoint'/ checkpoint_f)
+            checkpoint_f_path = Path(checkpoint_f)
+            checkpoint = torch.load(checkpoint_f_path)
+            self.exp_folder = checkpoint_f_path.parent.parent
             
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             epoch0 = checkpoint['epoch']
             loss0 = checkpoint['loss']
+            losses_array = np.array([])
             losses_array = np.append(loss0, losses_array)
         
         else: 
@@ -92,6 +89,10 @@ class FasterRcnn():
 
         # turn the model into training mode
         self.model.train()
+
+        # create a folder for storing the output of the training result
+        if self.exp_folder == '': 
+            self.create_training_output_folder() 
 
         print('training start')
         print('output file: ', self.exp_folder)
@@ -132,19 +133,23 @@ class FasterRcnn():
                     
             print( f'------> training at epoch{epoch} completed; loss: {loss_value}')
 
-            # save the general check point 
+            # save the general check point every epoch
             if (epoch) % epoch_num_ouputs == 0: 
                 checkpoint_name = 'checkpoint_epoch{:0>3}.pt'.format(epoch)
                 checkpoint_save_infor = {'epoch': epoch+1,  
                                          'model_state_dict': self.model.state_dict(), 
                                          'optimizer_state_dict': optimizer.state_dict(),
                                          'loss': loss_value, }
-                torch.save(checkpoint_save_infor, self.exp_folder / checkpoint_name)
+                torch.save(checkpoint_save_infor, self.exp_folder / 'checkpoint' / checkpoint_name)
                 print('save the checkpoint: {}'.format(checkpoint_name))
             
     
         file_name = f'model.{self.device}.pt'
-        torch.save(self.model, self.exp_folder / file_name)
+        file_path = self.exp_folder / 'model' / file_name
+        if file_path.exists(): 
+            torch.save(self.model, self.exp_folder / 'model' / f'model.{self.device}_{checkpoint_name}.pt'  )
+        else: 
+            torch.save(self.model, file_path)
         print('training completed; model saved to ', self.exp_folder / file_name)
 
 
@@ -158,10 +163,12 @@ class FasterRcnn():
 
         # load the model, turn on the eval mode of the model 
         if not load_from: 
-            if len(self.exp_folder) != 0: 
+            if self.exp_folder != '': 
                 try: 
                     self.model.eval()
-                    output_dir = self.exp_folder
+                    output_dir = self.exp_folder / 'detect'
+                    if not output_dir.is_dir(): 
+                        os.mkdir(output_dir)
                 except NameError: 
                     print('No trained model is found; input the filename you want to load from (arg: load_from)')
             else: 
@@ -182,6 +189,22 @@ class FasterRcnn():
                     os.mkdir(output_dir)
 
             print('evaluation results output to {}'.format(output_dir))
+
+
+        if len(self.class_name_dict) == 0: 
+            print('no classname dict being loaded, ')
+            catogory_txt = str(list(
+                model_path.parent.glob('*.dat')
+            )[0])
+            
+            class_name_dict = {}
+            with open(catogory_txt, 'r') as f: 
+                for line in f: 
+                    label_num, key = line.split()
+                    class_name_dict[int(label_num)] = key
+            
+            self.class_name_dict = class_name_dict
+
 
         # calculate the metrics
         # create a list for calculating mAP
@@ -218,12 +241,11 @@ class FasterRcnn():
             image_gt = image.copy()
             
             pred[i] = dict( boxes=torch.tensor(boxes[indices_keep].astype(float)), 
-                                scores=torch.tensor(scores[indices_keep].astype(float)), 
-                                labels=torch.tensor(labels[indices_keep].astype(float))
-                            )
+                            scores=torch.tensor(scores[indices_keep].astype(float)), 
+                            labels=torch.tensor(labels[indices_keep].astype(float)))
+            
             target_gt[i]  = dict( boxes=torch.tensor(boxes_gt.astype(float)), 
-                                    labels=torch.tensor(labels_gt.astype(float))
-                                )
+                                labels=torch.tensor(labels_gt.astype(float)))
 
             if plot_result : 
                 # plot the predictions

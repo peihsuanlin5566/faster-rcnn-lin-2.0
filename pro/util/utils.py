@@ -29,6 +29,7 @@ def find_class(xml_dir: str) -> List:
             class_name: a list contains the strings of all the class names
     """
     class_name = []
+    class_name.append('background')
     xml_files = Path(xml_dir).glob('*.xml')
     for xml_file in xml_files: 
         xml = ET.parse(xml_file)
@@ -52,7 +53,7 @@ def get_class_dict(xml_dir: str) -> Dict:
 
     class_name_dict = {}
     for i, class_name in enumerate(class_name_list):
-        class_name_dict[i] = class_name
+        class_name_dict[i+1] = class_name
 
     return class_name_dict
 
