@@ -153,7 +153,12 @@ class FasterRcnn():
         print('training completed; model saved to ', self.exp_folder / file_name)
 
 
-    def eval(self, val_dataloader, load_from=False, plot_result=False, output_dir=None): 
+    def eval(self, 
+            val_dataloader, 
+            class_name_dict: Dict = {}, 
+            load_from=False, 
+            plot_result=False, 
+            output_dir=None): 
         """ predict from a fintuned model
 
             Args: 
@@ -172,7 +177,7 @@ class FasterRcnn():
                 except NameError: 
                     print('No trained model is found; input the filename you want to load from (arg: load_from)')
             else: 
-                raise Exception("Sorry, no numbers below zero")
+                raise Exception("!!!No trained model is found.")
                 
         # load the model from the input argument
         else: 
@@ -191,20 +196,12 @@ class FasterRcnn():
             print('evaluation results output to {}'.format(output_dir))
 
 
-        if len(self.class_name_dict) == 0: 
-            print('no classname dict being loaded, ')
-            catogory_txt = str(list(
-                model_path.parent.glob('*.dat')
-            )[0])
-            
-            class_name_dict = {}
-            with open(catogory_txt, 'r') as f: 
-                for line in f: 
-                    label_num, key = line.split()
-                    class_name_dict[int(label_num)] = key
-            
+        if len(class_name_dict) == 0: 
+            class_name_dict = self.class_name_dict
+            if len(class_name_dict) == 0: 
+                raise TypeError("please input the class name dict \n(class_name_dict = get_class_dict(label_dir))")
+        else:
             self.class_name_dict = class_name_dict
-
 
         # calculate the metrics
         # create a list for calculating mAP
