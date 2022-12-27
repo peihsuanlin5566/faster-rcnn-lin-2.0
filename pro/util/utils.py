@@ -53,7 +53,7 @@ def get_class_dict(xml_dir: str) -> Dict:
 
     class_name_dict = {}
     for i, class_name in enumerate(class_name_list):
-        class_name_dict[i+1] = class_name
+        class_name_dict[i] = class_name
 
     return class_name_dict
 

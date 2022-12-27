@@ -24,6 +24,7 @@ class FasterRcnn():
         self.device = device
         self.exp_folder = ''
         self.class_name_dict = {}
+        self.eval_metrics = None 
     
     def load_pretrained_model(self, num_classes):
         """ we will be using Mask R-CNN, which is based on top of Faster R-CNN. 
@@ -151,6 +152,24 @@ class FasterRcnn():
         else: 
             torch.save(self.model, file_path)
         print('training completed; model saved to ', self.exp_folder / file_name)
+        self.model_filename =  self.exp_folder / file_name
+
+    def log(self, log_path): 
+        # record the training information
+        with open(log_path, 'w') as f: 
+            f.write('output path: {}\n'.format(self.exp_folder) )
+            f.write('output model filename: {}\n'.format(self.model_filename))
+            f.write('device: {}\n'.format(self.device))
+            if self.eval_metrics != None: 
+                
+            # f.write('data sample number: {}\n'.format(data_sample_number))
+            # f.write('batch_size_train: {}\n'.format(batch_size_train))
+            # f.write('num_epochs: {}\n'.format(num_epochs))
+            # f.write('learning rate: {}\n'.format(lr))
+            # f.write('weight_decay: {}\n'.format(weight_decay))
+            # f.write('momentum: {}\n'.format(momentum))
+            # f.write('dataset is sampled at: 1/{}\n'.format(sample))
+            # f.write('time_elapsed: {} sec (~{}hr{}min)'.format(int(elapse),elapse_hr,elapse_min ))
 
 
     def eval(self, 
@@ -269,6 +288,7 @@ class FasterRcnn():
         mAP = metric.compute()['map']
         print('mAP over {} images: {:4.3f}'.format(val_dataloader.dataset.__len__(), mAP) )
         print('images output to {}'.format(output_dir))
+        return  metric
 
 
 
