@@ -1,6 +1,6 @@
 pro/test/*
 .venv/*
-pro/data/dataset/*
+pro/data/dataset
 .ipynb_checkpoints
 *.pyc
 output/
