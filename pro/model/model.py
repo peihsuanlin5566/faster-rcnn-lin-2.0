@@ -10,7 +10,7 @@ from tqdm import tqdm
 from PIL import ImageDraw, ImageFont, Image
 from pro.util.utils import plot_results, gen_current_time_str,get_class_dict
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
-
+import time
 
 # faster-rcnn-lin-2.0 folder path 
 DIR_PATH = Path(os.path.dirname(os.path.abspath(__file__))).parent.parent
@@ -25,6 +25,9 @@ class FasterRcnn():
         self.exp_folder = ''
         self.class_name_dict = {}
         self.eval_metrics = None 
+        self.checkpoint = False
+        self.trained = False
+        self.evaluated = False
     
     def load_pretrained_model(self, num_classes):
         """ we will be using Mask R-CNN, which is based on top of Faster R-CNN. 
@@ -44,7 +47,7 @@ class FasterRcnn():
 
     def create_training_output_folder(self, ): 
         now_string = gen_current_time_str()
-        exp_folder = DIR_PATH / 'output' / now_string
+        exp_folder = DIR_PATH / 'output' / 'exp{}'.format(now_string)
         if not exp_folder.is_dir(): 
             os.mkdir(exp_folder )
             os.mkdir(exp_folder / 'model')
@@ -74,7 +77,9 @@ class FasterRcnn():
         
         # train from a existing checkpoint file
         if checkpoint_f: 
+            self.checkpoint = True
             checkpoint_f_path = Path(checkpoint_f)
+            self.checkpoint_f_path = checkpoint_f_path
             checkpoint = torch.load(checkpoint_f_path)
             self.exp_folder = checkpoint_f_path.parent.parent
             
@@ -96,8 +101,9 @@ class FasterRcnn():
             self.create_training_output_folder() 
 
         print('training start')
-        print('output file: ', self.exp_folder)
+        print('experiment folder name: {}'.format(self.exp_folder))
 
+        start_time = time.time()
         for epoch in range(epoch0, num_epochs): 
             print( f'training at epoch{epoch}: ')
             for i, batch in enumerate(tqdm(train_dataloader)):
@@ -131,9 +137,11 @@ class FasterRcnn():
 
                     # Update parameters
                     optimizer.step()
-                    
-            print( f'------> training at epoch{epoch} completed; loss: {loss_value}')
-
+            
+            end_time = time.time()
+            time_elapsed = (start_time-end_time)/60
+            print(f'------> training at epoch{epoch} completed; loss: {loss_value}')
+            print(f'    total time elapsed: {time_elapsed} min.')
             # save the general check point every epoch
             if (epoch) % epoch_num_ouputs == 0: 
                 checkpoint_name = 'checkpoint_epoch{:0>3}.pt'.format(epoch)
@@ -153,7 +161,13 @@ class FasterRcnn():
 
         torch.save(self.model.state_dict(), filename )
         print('training completed; model saved to ', filename)
+
+        # other information maybe written into the log file
         self.model_filename =  self.exp_folder / filename
+        self.time_elapsed = time_elapsed
+        self.trained = True 
+
+        self.write_log( self.exp_folder , optimizer=optimizer)
 
 
 
@@ -201,7 +215,11 @@ class FasterRcnn():
                 output_dir = model_path.parent.parent / 'detect' 
                 if not output_dir.is_dir(): 
                     os.mkdir(output_dir)
+            
+            self.exp_folder = output_dir.parent
+            self.model_filename = load_from
 
+            print('experiment folder name: {}'.format(self.exp_folder))
             print('evaluation results output to {}'.format(output_dir))
 
 
@@ -272,30 +290,64 @@ class FasterRcnn():
                         self.class_name_dict, 
                         output_dir=output_dir,
                         gt=True,)        
+            print('images output to {}'.format(output_dir))
     
         metric  = MeanAveragePrecision()
         metric.update(pred, target_gt)
         mAP = metric.compute()['map']
         print('mAP over {} images: {:4.3f}'.format(val_dataloader.dataset.__len__(), mAP) )
-        print('images output to {}'.format(output_dir))
-        return  metric
 
-    # def log(self, log_path, optimizer=None, eval_metric=None ): 
-    #     # record the training information
-    #     with open(log_path, 'w') as f: 
-    #         f.write('output path: {}\n'.format(self.exp_folder) )
-    #         f.write('output model filename: {}\n'.format(self.model_filename))
-    #         f.write('device: {}\n'.format(self.device))
-    #         if optimizer != None:
-    #             f.write('optimizer information: ')
-    #             param_groups = optimizer.state_dict()['param_groups'][0]
-    #             f.write('  weight decay: {}\n'.format(param_groups['weight_decay']) )
-    #             f.write('  momentum: {}\n'.format(param_groups['momentum']) )
-    #             f.write('  learning rate: {}'.format(param_groups['lr']))
-    #         if eval_metric != None: 
-    #             f.write('evaluation result: ')
-    #             mAP = eval_metric.compute()['map']
-    #             f.write(f'  mAP: {mAP}\n' )
+        self.evaluated = True
+        self.write_log(self.exp_folder , eval_metric=metric)
+
+        return  metric
+    
+
+    def write_log(self, log_path, optimizer=None, eval_metric=None ): 
+        # record the training information
+
+        # check the number of log files: 
+        log_path_obj = Path(log_path)
+        log_num = len(list(log_path_obj.glob('log*.txt')))
+
+        if log_num >= 1:
+            log_path_obj = log_path_obj / 'log{}.txt'.format(log_num)
+
+            if self.evaluated:
+                log_path_obj = log_path_obj / 'log{}_eval.txt'.format(log_num)
+
+            
+        # 3 cases for output the log file: 
+        # (1) start from a whole new training
+        # (2) restart the training from a checkpoint
+        # (3) evaluating a model from a model path (arg: load_from=)
+
+        with open(log_path_obj  , 'w') as f: 
+            f.write('experiment path: {}\n'.format(self.exp_folder) )
+            if self.checkpoint: 
+                f.write('(start from checkpoint:{})'.format(self.checkpoint_f_path))
+            f.write('model filename: {}\n'.format(self.model_filename))
+            f.write('training device: {}\n'.format(self.device))
+                
+            # case (1), (2)
+            if optimizer != None:
+                param_groups = optimizer.state_dict()['param_groups'][0]
+                f.write('------------------------------- \n')
+                f.write('optimizer information: ')
+                f.write('  weight decay: {}\n'.format(param_groups['weight_decay']) )
+                f.write('  momentum: {}\n'.format(param_groups['momentum']) )
+                f.write('  learning rate: {}'.format(param_groups['lr']))
+                if self.checkpoint: 
+                    f.write('  training time (start from checkpoint): {}\n'.format(self.time_elapsed))
+            
+            # case (3)
+            if eval_metric != None: 
+                
+                metric_result = eval_metric.compute()
+                f.write('------------------------------- \n')
+                f.write('evaluation result: \n')
+                for name in metric_result.keys(): 
+                    f.write('   {}: {}\n'.format(name, metric_result[name]))
 
                 
             # f.write('data sample number: {}\n'.format(data_sample_number))
