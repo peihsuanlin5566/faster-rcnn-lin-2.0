@@ -57,9 +57,9 @@ class FasterRcnn():
                 class_name_dict, 
                 checkpoint_f=False, 
                 lr: float = 0.005, 
-                num_epochs: float = 10, 
                 weight_decay: float = 0.005,
                 momentum: float = 0.9, 
+                num_epochs: float = 10, 
                 epoch_num_ouputs: int = 1
             ): 
 
@@ -145,31 +145,16 @@ class FasterRcnn():
                 print('save the checkpoint: {}'.format(checkpoint_name))
             
     
-        file_name = f'model.{self.device}.pt'
-        file_path = self.exp_folder / 'model' / file_name
+        file_path = self.exp_folder / 'model' / f'model.{self.device}.pth' 
         if file_path.exists(): 
-            torch.save(self.model, self.exp_folder / 'model' / f'model.{self.device}_{checkpoint_name}.pt'  )
+            filename = self.exp_folder / 'model' / f'model.{self.device}_{checkpoint_name}.pth' 
         else: 
-            torch.save(self.model, file_path)
-        print('training completed; model saved to ', self.exp_folder / file_name)
-        self.model_filename =  self.exp_folder / file_name
+            filename = file_path
 
-    def log(self, log_path): 
-        # record the training information
-        with open(log_path, 'w') as f: 
-            f.write('output path: {}\n'.format(self.exp_folder) )
-            f.write('output model filename: {}\n'.format(self.model_filename))
-            f.write('device: {}\n'.format(self.device))
-            if self.eval_metrics != None: 
-                
-            # f.write('data sample number: {}\n'.format(data_sample_number))
-            # f.write('batch_size_train: {}\n'.format(batch_size_train))
-            # f.write('num_epochs: {}\n'.format(num_epochs))
-            # f.write('learning rate: {}\n'.format(lr))
-            # f.write('weight_decay: {}\n'.format(weight_decay))
-            # f.write('momentum: {}\n'.format(momentum))
-            # f.write('dataset is sampled at: 1/{}\n'.format(sample))
-            # f.write('time_elapsed: {} sec (~{}hr{}min)'.format(int(elapse),elapse_hr,elapse_min ))
+        torch.save(self.model.state_dict(), filename )
+        print('training completed; model saved to ', filename)
+        self.model_filename =  self.exp_folder / filename
+
 
 
     def eval(self, 
@@ -184,6 +169,11 @@ class FasterRcnn():
                 load_from: trained model (including the relatively path), 
                 (e.g., 'output_model/221216-175220/model.pt')
         """
+        # load the class_name_dict, 
+        # to load the pretrained faster rcnn model
+        self.class_name_dict = class_name_dict
+        self.num_classes = len(class_name_dict)
+        self.load_pretrained_model(self.num_classes)
 
         # load the model, turn on the eval mode of the model 
         if not load_from: 
@@ -202,9 +192,9 @@ class FasterRcnn():
         else: 
             # model_path = Path(load_from).parent / 'model.pt' 
             model_path = Path(load_from)
-            model_load_from_weights = torch.load(model_path, map_location=torch.device('cpu')) 
-            model_load_from_weights.to(self.device)
-            self.model = model_load_from_weights
+            dict_load_from_weights = torch.load(model_path, map_location=torch.device('cpu')) 
+            self.model.load_state_dict(dict_load_from_weights) 
+            self.model.to(self.device)
             self.model.eval()
             
             if output_dir == None: 
@@ -290,6 +280,32 @@ class FasterRcnn():
         print('images output to {}'.format(output_dir))
         return  metric
 
+    # def log(self, log_path, optimizer=None, eval_metric=None ): 
+    #     # record the training information
+    #     with open(log_path, 'w') as f: 
+    #         f.write('output path: {}\n'.format(self.exp_folder) )
+    #         f.write('output model filename: {}\n'.format(self.model_filename))
+    #         f.write('device: {}\n'.format(self.device))
+    #         if optimizer != None:
+    #             f.write('optimizer information: ')
+    #             param_groups = optimizer.state_dict()['param_groups'][0]
+    #             f.write('  weight decay: {}\n'.format(param_groups['weight_decay']) )
+    #             f.write('  momentum: {}\n'.format(param_groups['momentum']) )
+    #             f.write('  learning rate: {}'.format(param_groups['lr']))
+    #         if eval_metric != None: 
+    #             f.write('evaluation result: ')
+    #             mAP = eval_metric.compute()['map']
+    #             f.write(f'  mAP: {mAP}\n' )
+
+                
+            # f.write('data sample number: {}\n'.format(data_sample_number))
+            # f.write('batch_size_train: {}\n'.format(batch_size_train))
+            # f.write('num_epochs: {}\n'.format(num_epochs))
+            # f.write('learning rate: {}\n'.format(lr))
+            # f.write('weight_decay: {}\n'.format(weight_decay))
+            # f.write('momentum: {}\n'.format(momentum))
+            # f.write('dataset is sampled at: 1/{}\n'.format(sample))
+            # f.write('time_elapsed: {} sec (~{}hr{}min)'.format(int(elapse),elapse_hr,elapse_min ))
 
 
     
