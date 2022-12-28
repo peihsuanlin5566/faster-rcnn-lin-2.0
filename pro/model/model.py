@@ -167,8 +167,7 @@ class FasterRcnn():
         self.time_elapsed = time_elapsed
         self.trained = True 
 
-        self.write_log( self.exp_folder , optimizer=optimizer)
-
+        self.write_log( self.exp_folder, trained=self.trained, optimizer=optimizer)
 
 
     def eval(self, 
@@ -290,7 +289,7 @@ class FasterRcnn():
                         self.class_name_dict, 
                         output_dir=output_dir,
                         gt=True,)        
-            print('images output to {}'.format(output_dir))
+        print('images output to {}'.format(output_dir))
     
         metric  = MeanAveragePrecision()
         metric.update(pred, target_gt)
@@ -298,25 +297,25 @@ class FasterRcnn():
         print('mAP over {} images: {:4.3f}'.format(val_dataloader.dataset.__len__(), mAP) )
 
         self.evaluated = True
-        self.write_log(self.exp_folder , eval_metric=metric)
+        self.write_log(self.exp_folder, evaluated=self.evaluated, eval_metric=metric)
 
         return  metric
     
 
-    def write_log(self, log_path, optimizer=None, eval_metric=None ): 
+    def write_log(self, log_path, evaluated=False, trained=False, optimizer=None, eval_metric=None ): 
         # record the training information
 
         # check the number of log files: 
         log_path_obj = Path(log_path)
-        log_num = len(list(log_path_obj.glob('log*.txt')))
 
-        if log_num >= 1:
-            log_path_obj = log_path_obj / 'log{}.txt'.format(log_num)
+        if trained: 
+            log_num = len(list(log_path_obj.glob('train_log*.txt')))
+            log_path_obj = log_path_obj / 'train_log{}.txt'.format(log_num) 
 
-            if self.evaluated:
-                log_path_obj = log_path_obj / 'log{}_eval.txt'.format(log_num)
+        if evaluated: 
+            log_num = len(list(log_path_obj.glob('eval_log*.txt')))
+            log_path_obj = log_path_obj / 'eval_log{}.txt'.format(log_num) 
 
-            
         # 3 cases for output the log file: 
         # (1) start from a whole new training
         # (2) restart the training from a checkpoint
